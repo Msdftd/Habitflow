@@ -20,7 +20,7 @@ import {
   deleteDoc,
   addDoc,
   writeBatch
-} from 'firestore/firestore';
+} from 'firebase/firestore';
 
 const HABIT_TYPES = [
   { value: "spiritual", label: "Spiritual", emoji: "🕌" },
@@ -140,6 +140,28 @@ async function cleanupOldData(userId) {
       if (filteredLinks.length !== links.length) {
         await setDoc(doc(db, "mediaLinks", userId), { links: filteredLinks });
       }
+    }
+
+    // Clean messages
+    const messagesQuery = query(
+      collection(db, "messages"), 
+      where("toUserId", "==", userId)
+    );
+    const messagesSnap = await getDocs(messagesQuery);
+    const msgBatch = writeBatch(db);
+    let msgDeletedCount = 0;
+    
+    messagesSnap.docs.forEach(docSnap => {
+      const data = docSnap.data();
+      const createdAt = new Date(data.createdAt);
+      if (createdAt < twentyFourHoursAgo) {
+        msgBatch.delete(docSnap.ref);
+        msgDeletedCount++;
+      }
+    });
+    
+    if (msgDeletedCount > 0) {
+      await msgBatch.commit();
     }
 
   } catch (error) {
@@ -985,6 +1007,156 @@ function JournalPage({ thoughts, setThoughts, quotes, setQuotes, mediaLinks, set
   );
 }
 
+function MessagesPage({ user, messages, setMessages }) {
+  const [showCompose, setShowCompose] = useState(false);
+  const [toUser, setToUser] = useState("");
+  const [msgText, setMsgText] = useState("");
+  const [msgType, setMsgType] = useState("motivation");
+  const [msgVisibility, setMsgVisibility] = useState("public");
+  const [users, setUsers] = useState([]);
+  const [tab, setTab] = useState("received");
+
+  useEffect(() => {
+    (async () => {
+      const usersSnap = await getDocs(collection(db, "users"));
+      const usersList = usersSnap.docs.map(doc => doc.data()).filter(u => u.uid !== user.uid);
+      setUsers(usersList);
+    })();
+  }, [user]);
+
+  const received = messages.filter((m) => m.toUserId === user.uid);
+  const sent = messages.filter((m) => m.fromUserId === user.uid);
+
+  const sendMessage = async () => {
+    if (!toUser.trim() || !msgText.trim()) return;
+    
+    // Find recipient
+    const recipientUser = users.find(u => u.username === toUser.toLowerCase().trim());
+    if (!recipientUser) {
+      alert("User not found");
+      return;
+    }
+
+    const msg = {
+      id: generateId(), 
+      fromUserId: user.uid,
+      fromUsername: user.username, 
+      fromName: user.displayName,
+      toUserId: recipientUser.uid,
+      toUsername: recipientUser.username, 
+      text: msgText.trim(), 
+      type: msgType,
+      visibility: msgVisibility, 
+      date: getToday(), 
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = [msg, ...messages];
+    setMessages(updated);
+    
+    await addDoc(collection(db, "messages"), msg);
+    
+    setMsgText("");
+    setToUser("");
+    setShowCompose(false);
+  };
+
+  const deleteMessage = async (id) => {
+    if (!confirm("Delete this message?")) return;
+    const updated = messages.filter((m) => m.id !== id);
+    setMessages(updated);
+  };
+
+  const renderMessage = (m, showFrom) => (
+    <div key={m.id} style={{
+      background: "var(--card)", borderRadius: 14, padding: "16px 18px", marginBottom: 10,
+      border: "1px solid var(--border)",
+      borderLeft: `3px solid ${m.type === "motivation" ? "#2ecc71" : m.type === "reminder" ? "#f39c12" : "#3498db"}`,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flex: 1 }}>
+          <span style={{ fontWeight: 700, fontSize: 13 }}>
+            {showFrom ? `From @${m.fromUsername}` : `To @${m.toUsername}`}
+          </span>
+          <span style={{
+            fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 6,
+            background: m.type === "motivation" ? "rgba(46,204,113,0.15)" : m.type === "reminder" ? "rgba(243,156,18,0.15)" : "rgba(52,152,219,0.15)",
+            color: m.type === "motivation" ? "#2ecc71" : m.type === "reminder" ? "#f39c12" : "#3498db",
+          }}>{m.type}</span>
+          <span style={{
+            fontSize: 10, padding: "2px 6px", borderRadius: 4,
+            background: m.visibility === "public" ? "rgba(46,204,113,0.1)" : "rgba(149,165,166,0.1)",
+            color: m.visibility === "public" ? "#2ecc71" : "#95a5a6",
+          }}>{m.visibility === "public" ? "public" : "DM"}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>{formatDate(m.date)}</span>
+          {m.fromUserId === user.uid && (
+            <button onClick={() => deleteMessage(m.id)} style={{
+              background: "rgba(231,76,60,0.1)", border: "none", color: "#e74c3c",
+              cursor: "pointer", fontSize: 11, padding: "4px 8px", borderRadius: 6,
+              fontWeight: 600,
+            }}>Delete</button>
+          )}
+        </div>
+      </div>
+      <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>{m.text}</p>
+    </div>
+  );
+
+  return (
+    <div style={{ animation: "fadeIn 0.4s ease" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, margin: 0, fontFamily: "var(--font-display)" }}>Messages</h2>
+        <Btn onClick={() => setShowCompose(true)}>✉️ Compose</Btn>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 24, background: "var(--surface)", borderRadius: 14, padding: 4 }}>
+        {[{ id: "received", label: `📥 Received (${received.length})` }, { id: "sent", label: `📤 Sent (${sent.length})` }].map((t) => (
+          <div key={t.id} onClick={() => setTab(t.id)} style={{
+            flex: 1, padding: "10px 8px", borderRadius: 10, textAlign: "center", cursor: "pointer",
+            fontSize: 13, fontWeight: 600, transition: "all 0.2s",
+            background: tab === t.id ? "var(--card)" : "transparent",
+            color: tab === t.id ? "var(--text)" : "var(--muted)",
+          }}>{t.label}</div>
+        ))}
+      </div>
+
+      {tab === "received" && (
+        received.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>No messages received yet.</div>
+        ) : received.map((m) => renderMessage(m, true))
+      )}
+      {tab === "sent" && (
+        sent.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>No messages sent yet.</div>
+        ) : sent.map((m) => renderMessage(m, false))
+      )}
+
+      <Modal open={showCompose} onClose={() => setShowCompose(false)} title="Send Message">
+        <Input label="To Username" placeholder="@username" value={toUser} onChange={(e) => setToUser(e.target.value)} />
+        {users.length > 0 && (
+          <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {users.slice(0, 8).map((u) => (
+              <span key={u.uid} onClick={() => setToUser(u.username)} style={{
+                fontSize: 12, padding: "4px 10px", borderRadius: 8, cursor: "pointer",
+                background: toUser === u.username ? "var(--accent)" : "var(--surface)",
+                color: toUser === u.username ? "#fff" : "var(--muted)",
+                border: "1px solid var(--border)",
+              }}>@{u.username}</span>
+            ))}
+          </div>
+        )}
+        <Select label="Type" value={msgType} onChange={(e) => setMsgType(e.target.value)} options={MSG_TYPES} />
+        <Select label="Visibility" value={msgVisibility} onChange={(e) => setMsgVisibility(e.target.value)}
+          options={[{ value: "public", label: "🌍 Public (shown on profile)" }, { value: "private", label: "🔒 Private (DM)" }]} />
+        <Textarea label="Message" placeholder="Write your message..." value={msgText} onChange={(e) => setMsgText(e.target.value)} />
+        <Btn onClick={sendMessage} style={{ width: "100%" }} disabled={!toUser.trim() || !msgText.trim()}>Send Message</Btn>
+      </Modal>
+    </div>
+  );
+}
+
 function ExploreProfiles({ currentUser }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1046,6 +1218,7 @@ export default function App() {
   const [thoughts, setThoughts] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [mediaLinks, setMediaLinks] = useState([]);
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeNav, setActiveNav] = useState("dashboard");
 
@@ -1057,7 +1230,6 @@ export default function App() {
           const userData = userDoc.data();
           setUser(userData);
           
-          // Run cleanup for 24hr old data
           await cleanupOldData(userData.uid);
           
           await loadUserData(userData.uid);
@@ -1093,6 +1265,21 @@ export default function App() {
     if (mediaDoc.exists()) {
       setMediaLinks(mediaDoc.data().links || []);
     }
+
+    const messagesQuery = query(
+      collection(db, "messages"),
+      where("toUserId", "==", uid)
+    );
+    const receivedSnap = await getDocs(messagesQuery);
+    
+    const sentQuery = query(
+      collection(db, "messages"),
+      where("fromUserId", "==", uid)
+    );
+    const sentSnap = await getDocs(sentQuery);
+    
+    const allMessages = [...receivedSnap.docs.map(d => d.data()), ...sentSnap.docs.map(d => d.data())];
+    setMessages(allMessages);
   };
 
   const handleAuth = (userData) => {
@@ -1110,6 +1297,7 @@ export default function App() {
     setThoughts([]);
     setQuotes([]);
     setMediaLinks([]);
+    setMessages([]);
   };
 
   const navItems = [
@@ -1117,6 +1305,7 @@ export default function App() {
     { id: "habits", icon: "🎯", label: "Habits" },
     { id: "daily-card", icon: "📋", label: "Daily" },
     { id: "journal", icon: "✍️", label: "Journal" },
+    { id: "messages", icon: "💬", label: "Messages" },
     { id: "explore", icon: "🔍", label: "Explore" },
   ];
 
@@ -1179,7 +1368,6 @@ export default function App() {
         {page === "auth" && <AuthPage onAuth={handleAuth} />}
         {page === "app" && user && (
           <div style={{ display: "flex", minHeight: "100vh" }}>
-            {/* Desktop Sidebar */}
             <aside className="desktop-sidebar" style={{
               width: 220, background: "var(--card)", borderRight: "1px solid var(--border)",
               padding: "20px 12px", display: "flex", flexDirection: "column",
@@ -1220,7 +1408,6 @@ export default function App() {
               </div>
             </aside>
 
-            {/* Main Content */}
             <main style={{ flex: 1, padding: "28px 24px 100px", maxWidth: 720, margin: "0 auto", width: "100%" }}>
               {activeNav === "dashboard" && (
                 <Dashboard user={user} habits={habits} dailyCards={dailyCards}
@@ -1237,12 +1424,14 @@ export default function App() {
                   quotes={quotes} setQuotes={setQuotes}
                   mediaLinks={mediaLinks} setMediaLinks={setMediaLinks} userId={user.uid} />
               )}
+              {activeNav === "messages" && (
+                <MessagesPage user={user} messages={messages} setMessages={setMessages} />
+              )}
               {activeNav === "explore" && (
                 <ExploreProfiles currentUser={user} />
               )}
             </main>
 
-            {/* Mobile Bottom Nav */}
             <nav className="mobile-nav" style={{
               position: "fixed", bottom: 0, left: 0, right: 0, background: "var(--card)",
               borderTop: "1px solid var(--border)", display: "none", padding: "8px 8px 12px",
