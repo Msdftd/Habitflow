@@ -1309,6 +1309,15 @@ export default function App() {
     { id: "explore", icon: "🔍", label: "Explore" },
   ];
 
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", color: "var(--text)" }}>
@@ -1352,15 +1361,6 @@ export default function App() {
         button:active:not(:disabled) { transform: translateY(0); }
         
         input:focus, textarea:focus, select:focus { border-color: var(--accent) !important; }
-        
-        @media (max-width: 768px) {
-          .desktop-sidebar { display: none !important; }
-          .mobile-nav { display: flex !important; }
-        }
-        
-        @media (min-width: 769px) {
-          .mobile-nav { display: none !important; }
-        }
       `}</style>
 
       <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
@@ -1368,7 +1368,8 @@ export default function App() {
         {page === "auth" && <AuthPage onAuth={handleAuth} />}
         {page === "app" && user && (
           <div style={{ display: "flex", minHeight: "100vh" }}>
-            <aside className="desktop-sidebar" style={{
+            {!isMobile && (
+            <aside style={{
               width: 220, background: "var(--card)", borderRight: "1px solid var(--border)",
               padding: "20px 12px", display: "flex", flexDirection: "column",
               position: "sticky", top: 0, height: "100vh", overflowY: "auto",
@@ -1407,6 +1408,7 @@ export default function App() {
                 </div>
               </div>
             </aside>
+            )}
 
             <main style={{ flex: 1, padding: "28px 24px 100px", maxWidth: 720, margin: "0 auto", width: "100%" }}>
               {activeNav === "dashboard" && (
@@ -1432,9 +1434,10 @@ export default function App() {
               )}
             </main>
 
-            <nav className="mobile-nav" style={{
+            {isMobile && (
+            <nav style={{
               position: "fixed", bottom: 0, left: 0, right: 0, background: "var(--card)",
-              borderTop: "1px solid var(--border)", display: "none", padding: "8px 8px 12px",
+              borderTop: "1px solid var(--border)", display: "flex", padding: "8px 8px 12px",
               zIndex: 100, backdropFilter: "blur(20px)",
             }}>
               <div style={{ display: "flex", justifyContent: "space-around", width: "100%" }}>
@@ -1450,6 +1453,7 @@ export default function App() {
                 ))}
               </div>
             </nav>
+            )}
           </div>
         )}
       </div>
