@@ -1,5 +1,12 @@
 import { initializeApp } from "firebase/app";
 import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+} from "firebase/auth";
+import {
   getFirestore,
   doc,
   setDoc,
@@ -8,12 +15,8 @@ import {
   collection,
   query,
   where,
-  orderBy,
-  limit,
   addDoc,
   deleteDoc,
-  onSnapshot,
-  serverTimestamp,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -27,10 +30,16 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 const db = getFirestore(app);
 
 export {
+  auth,
   db,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
   doc,
   setDoc,
   getDoc,
@@ -38,10 +47,6 @@ export {
   collection,
   query,
   where,
-  orderBy,
-  limit,
   addDoc,
   deleteDoc,
-  onSnapshot,
-  serverTimestamp,
 };
